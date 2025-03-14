@@ -8,6 +8,7 @@ import time
 import queue
 import threading
 import json
+import shutil
 
 app = Flask(__name__)
 CORS(app)
@@ -32,6 +33,25 @@ def send_message(message, message_type='message'):
         message_queue.put({"message": message, "type": message_type}, timeout=1)
     except queue.Full:
         pass  # 如果队列满了，跳过这条消息
+
+def cleanup_files():
+    """清理临时文件和视频文件"""
+    try:
+        # 清理videos目录
+        for file in os.listdir(INPUT_DIR):
+            file_path = os.path.join(INPUT_DIR, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        
+        # 清理output目录中的wav文件
+        for file in os.listdir(OUTPUT_DIR):
+            if file.endswith('.wav'):
+                file_path = os.path.join(OUTPUT_DIR, file)
+                os.remove(file_path)
+        
+        send_message("文件清理完成", "status")
+    except Exception as e:
+        send_message(f"清理文件时出错: {str(e)}", "error")
 
 def format_duration(seconds_float):
     """将秒数格式化为易读的时间字符串"""

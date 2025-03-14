@@ -37,11 +37,7 @@ const handleSelect = (key) => {
       active-text-color="#ffd04b"
       @select="handleSelect"
     >
-      <el-menu-item index="1">首页</el-menu-item>
-      <el-menu-item index="2">成交榜多股同列</el-menu-item>
-      <el-menu-item index="3">市场情绪</el-menu-item>
-      <el-menu-item index="4">我的自选股</el-menu-item>
-      <el-menu-item index="5">自选股K线</el-menu-item>
+      <el-menu-item index="1">视频STT文字提取</el-menu-item>
     </el-menu>
 
     <div class="main-content">
