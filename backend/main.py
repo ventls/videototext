@@ -2,13 +2,36 @@ import subprocess
 import os
 import uuid
 from faster_whisper import WhisperModel
+from flask import Flask, request, jsonify, send_from_directory, Response
+from flask_cors import CORS
+import time
+import queue
+import threading
+import json
+
+app = Flask(__name__)
+CORS(app)
 
 # 配置参数
-INPUT_DIR = "./video"             # 输入视频目录
+INPUT_DIR = "./videos"             # 输入视频目录
 OUTPUT_DIR = "./output"           # 输出文本目录
-MODEL_SIZE = "medium"              # Whisper模型大小 # 可以换成"tiny", "base", "small", "medium"，"large"
+MODEL_SIZE = "medium"              # Whisper模型大小
 BEAM_SIZE = 3                     # 束搜索大小
 LANGUAGE = "zh"                   # 指定中文识别
+
+# 确保目录存在
+os.makedirs(INPUT_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# 创建一个消息队列用于SSE
+message_queue = queue.Queue()
+
+def send_message(message, message_type='message'):
+    """发送消息到队列"""
+    try:
+        message_queue.put({"message": message, "type": message_type}, timeout=1)
+    except queue.Full:
+        pass  # 如果队列满了，跳过这条消息
 
 def format_duration(seconds_float):
     """将秒数格式化为易读的时间字符串"""
@@ -27,34 +50,35 @@ def format_duration(seconds_float):
 
 def process_video(model, video_path, output_dir):
     """处理单个视频文件"""
-    # 生成唯一临时文件名
     temp_audio = os.path.join(output_dir, f"temp_audio_{uuid.uuid4().hex}.wav")
     
     try:
-        # 生成输出文件名
         base_name = os.path.splitext(os.path.basename(video_path))[0]
         output_txt = os.path.join(output_dir, f"{base_name}.txt")
 
+        send_message("开始处理视频...", "status")
+        
         # 步骤1: 用FFmpeg提取音频
         ffmpeg_cmd = [
             "ffmpeg",
-            "-y",                # 覆盖已有文件
+            "-y",
             "-i", video_path,
-            "-vn",               # 禁用视频流
+            "-vn",
             "-acodec", "pcm_s16le",
-            "-ar", "16000",      # 采样率
-            "-ac", "1",         # 单声道
+            "-ar", "16000",
+            "-ac", "1",
             temp_audio
         ]
         
-        # 运行FFmpeg
+        send_message("正在提取音频...", "status")
         subprocess.run(
             ffmpeg_cmd,
             check=True,
-            stdout=subprocess.DEVNULL,  # 隐藏输出
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
 
+        send_message("开始语音识别...", "status")
         # 步骤2: 执行语音识别
         segments, _ = model.transcribe(
             temp_audio,
@@ -71,53 +95,83 @@ def process_video(model, video_path, output_dir):
                 end_time = format_duration(segment.end)
                 line = f"[{start_time} -> {end_time}] {segment.text}\n"
                 f.write(line)
-                print(line.strip())
+                send_message(line.strip())
+                time.sleep(0.1)  # 添加小延迟使输出更平滑
+        
+        send_message("处理完成！", "status")
         return True
 
     except subprocess.CalledProcessError:
-        print(f"FFmpeg处理失败: {os.path.basename(video_path)}")
+        send_message(f"FFmpeg处理失败: {os.path.basename(video_path)}", "error")
         return False
     except Exception as e:
-        print(f"识别异常: {os.path.basename(video_path)} - {str(e)}")
+        send_message(f"识别异常: {os.path.basename(video_path)} - {str(e)}", "error")
         return False
     finally:
-        # 清理临时音频文件
         if os.path.exists(temp_audio):
             os.remove(temp_audio)
 
-def main():
-    # 创建输出目录
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+@app.route('/upload', methods=['POST'])
+def upload_video():
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+    
+    file = request.files['video']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    if file:
+        filename = file.filename
+        file_path = os.path.join(INPUT_DIR, filename)
+        file.save(file_path)
+        return jsonify({"message": "File uploaded successfully", "filename": filename})
 
+@app.route('/convert', methods=['POST'])
+def convert_video():
+    data = request.json
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+    
+    video_path = os.path.join(INPUT_DIR, filename)
+    if not os.path.exists(video_path):
+        return jsonify({"error": "File not found"}), 404
+    
     # 初始化Whisper模型
-    model = WhisperModel(
-        MODEL_SIZE,
-        device="cuda",
-        compute_type="float16",
-        download_root="./whisper-models"
-    )
+    try:
+        send_message("正在加载模型...", "status")
+        model = WhisperModel(
+            MODEL_SIZE,
+            device="cuda",  # 使用CUDA
+            compute_type="float16",  # 使用float16以提高性能
+            download_root="./whisper-models"
+        )
+        send_message("模型加载完成", "status")
+    except Exception as e:
+        send_message(f"模型加载失败: {str(e)}", "error")
+        return jsonify({"error": "Model loading failed"}), 500
+    
+    # 在新线程中处理视频
+    thread = threading.Thread(target=process_video, args=(model, video_path, OUTPUT_DIR))
+    thread.daemon = True  # 设置为守护线程
+    thread.start()
+    return jsonify({"message": "Conversion started"})
 
-    # 获取待处理视频列表
-    video_files = [
-        f for f in os.listdir(INPUT_DIR)
-        if f.lower().endswith((".mp4", ".mkv", ".ts"))
-    ]
+@app.route('/stream')
+def stream():
+    def generate():
+        while True:
+            try:
+                message = message_queue.get(timeout=30)  # 30秒超时
+                yield f"data: {json.dumps(message)}\n\n"
+            except queue.Empty:
+                yield f"data: {json.dumps({'message': 'keep-alive', 'type': 'ping'})}\n\n"
 
-    print(f"发现 {len(video_files)} 个待处理视频")
+    return Response(generate(), mimetype='text/event-stream')
 
-    # 批量处理视频
-    success_count = 0
-    for idx, filename in enumerate(video_files, 1):
-        video_path = os.path.join(INPUT_DIR, filename)
-        print(f"\n[{idx}/{len(video_files)}] 正在处理: {filename}")
-        
-        if process_video(model, video_path, OUTPUT_DIR):
-            success_count += 1
-            print(f"✓ 处理成功: {filename}")
-        else:
-            print(f"× 处理失败: {filename}")
-
-    print(f"\n处理完成！成功率: {success_count}/{len(video_files)}")
+@app.route('/output/<filename>')
+def get_output(filename):
+    return send_from_directory(OUTPUT_DIR, filename)
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True, port=5000, use_reloader=False)  # 禁用重载器以防止重复启动

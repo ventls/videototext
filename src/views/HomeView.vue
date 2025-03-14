@@ -1,5 +1,5 @@
 <script setup>
-import TheWelcome from '../components/stocksindex.vue'
+import TheWelcome from '../components/Index.vue'
 </script>
 
 <template>
