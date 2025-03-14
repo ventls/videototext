@@ -34,8 +34,8 @@
 1. 克隆仓库：
 
 ```bash
-git clone <repository-url>
-cd video_to_text
+git clone https://github.com/ventls/videototext.git
+cd videototext
 ```
 
 2. 创建并激活 Python 虚拟环境：
@@ -101,7 +101,7 @@ python backend/main.py
 1. 在另一个终端窗口中，进入前端目录：
 
 ```bash
-cd video_to_text
+cd videototext
 ```
 
 2. 启动开发服务器：
