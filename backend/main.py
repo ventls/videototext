@@ -173,5 +173,11 @@ def stream():
 def get_output(filename):
     return send_from_directory(OUTPUT_DIR, filename)
 
-if __name__ == "__main__":
+def main():
+    # 启动时清理文件
+    cleanup_files()
+    # 启动Flask应用
     app.run(debug=True, port=5000, use_reloader=False)  # 禁用重载器以防止重复启动
+
+if __name__ == "__main__":
+    main()
