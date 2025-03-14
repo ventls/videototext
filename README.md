@@ -13,6 +13,11 @@
 - 支持中文语音识别
 - 自动清理临时文件
 
+
+##演示效果
+
+![Demo Image](img/app_demo.png)
+
 ## 技术栈
 
 - **前端**：Vue.js, Vite
@@ -25,9 +30,9 @@
 ### 前提条件
 
 - Node.js (v14+)
-- Python (v3.8+)
+- Python (v3.10+)
 - FFmpeg
-- CUDA 和 cuDNN (用于 GPU 加速，可选)
+- CUDA (用于 GPU 加速，可选)
 
 ### 后端安装
 
@@ -48,7 +53,7 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-3. 安装依赖：
+3. 安装python后端依赖：
 
 ```bash
 cd backend
@@ -81,13 +86,6 @@ npm install
 
 1. 确保在项目根目录下：
 
-```bash
-# 如果使用虚拟环境
-source venv/bin/activate  # Linux/Mac
-# 或
-venv\Scripts\activate  # Windows
-```
-
 2. 启动 Flask 服务器：
 
 ```bash
@@ -110,7 +108,7 @@ cd videototext
 npm run dev
 ```
 
-前端应用将在 http://localhost:3000 (或类似端口) 上运行。
+前端应用将在 http://localhost:5173 (或类似端口) 上运行。
 
 ## 使用指南
 
